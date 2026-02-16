@@ -1,7 +1,9 @@
-````markdown
+
 # Zeek Try Cluster
 
-A “try.zeek.org-style” local web UI that lets you **paste a Zeek script**, **upload a PCAP**, and run analysis in a **multi-worker (cluster-like) environment** — with a built-in **worker→5-tuple mapping log** so you can prove that different parts of a detection landed on different workers.
+A “try.zeek.org-style” local web UI that lets you **paste a Zeek script**, **upload a PCAP**, and run analysis in a
+**multi-worker (cluster-like) environment** — with a built-in **worker→5-tuple mapping log** so you can prove that
+different parts of a detection landed on different workers.
 
 This project is built for validating **sequence-based detections** that can fail in real clustered deployments when different stages are processed by different workers.
 
