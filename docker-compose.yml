@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  web:
+    build: .
+    container_name: zeek_try_cluster_web
+    ports:
+      - "8880:8880"
+    environment:
+      - JOB_ROOT=/data/jobs
+      - MAX_UPLOAD_MB=200
+    volumes:
+      - jobs:/data/jobs
+    command: ["/opt/venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8880"]
+
+volumes:
+  jobs:

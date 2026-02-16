@@ -1,0 +1,28 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Local envs
+.venv/
+venv/
+
+# Logs / temp
+*.log
+*.tmp
+tmp/
+temp/
+
+# Docker volume data (we use a named volume, but just in case)
+data/
+jobs/

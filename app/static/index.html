@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Zeek Try Cluster</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="topbar">
+    <div class="title">Zeek Try Cluster</div>
+  </div>
+
+  <div class="layout">
+    <div class="editor-pane">
+      <div class="label">Zeek Script</div>
+
+      <!-- Ace mounts here -->
+      <div id="editor"></div>
+
+      <!-- Fallback (hidden) -->
+      <textarea id="script" spellcheck="false" style="display:none;"></textarea>
+    </div>
+
+    <div class="controls-pane">
+      <div class="label">PCAP</div>
+      <input type="file" id="pcap" accept=".pcap,.pcapng" />
+      <div class="row">
+        <label>Workers</label>
+        <input type="number" id="workers" min="1" max="16" value="7"/>
+      </div>
+      <button id="run">Run</button>
+
+      <div class="status" id="status"></div>
+
+      <div class="io">
+        <div class="io-title">Runner stdout</div>
+        <pre id="stdout"></pre>
+        <div class="io-title">Runner stderr</div>
+        <pre id="stderr"></pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="logs-pane">
+    <div class="tabsbar">
+      <div class="tabs" id="tabs"></div>
+
+      <div class="rightcol">
+        <div class="searchbox">
+          <input id="search" type="text" placeholder='Search (e.g., id.resp_h:192.168.* AND service:dns)' />
+          <button id="applySearch" type="button">Search</button>
+          <button id="clearSearch" type="button">Clear</button>
+        </div>
+
+        <div class="hint" id="searchHint">
+          Syntax: <code>field:value</code> / <code>field=value</code>. Parentheses allowed. Wildcards: <code>*</code> and <code>?</code>. Boolean: <code>AND OR NOT</code>. No field = search all values.
+        </div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table id="logtable"></table>
+    </div>
+    <div class="pager" id="pager"></div>
+  </div>
+
+  <script src="/static/ace.js"></script>
+  <script src="/static/theme-twilight.js"></script>
+  <script src="/static/mode-c_cpp.js"></script>
+  <script src="/static/worker-base.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
