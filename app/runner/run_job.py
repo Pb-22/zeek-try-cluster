@@ -7,11 +7,15 @@ from app.runner.split_pcap import split_pcap_flowhash
 from app.runner.merge_logs import merge_worker_logs
 
 
+ZEEK_BIN = "/usr/local/zeek/bin/zeek"
+
+
 def run_zeek_on_slice(worker_dir: Path, slice_pcap: Path, script_path: Path) -> None:
     logs_dir = worker_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd = ["zeek", "-r", str(slice_pcap), str(script_path)]
+    # -C: ignore checksums (common for pcaps captured with NIC checksum offloading)
+    cmd = [ZEEK_BIN, "-C", "-r", str(slice_pcap), str(script_path)]
     proc = subprocess.run(cmd, cwd=str(worker_dir), capture_output=True, text=True)
 
     (worker_dir / "zeek.stdout").write_text(proc.stdout or "", encoding="utf-8")

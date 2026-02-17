@@ -24,17 +24,32 @@ def _fmt_ipv6(ip6: bytes) -> str:
     return ":".join(parts)
 
 
+def _canon_endpoints(ip_a: bytes, port_a: int, ip_b: bytes, port_b: int) -> Tuple[bytes, int, bytes, int]:
+    """
+    Canonicalize endpoints so the flow hash is direction-symmetric.
+    This emulates AF_PACKET-style symmetric flow hashing: both directions
+    of the same 5-tuple map to the same worker.
+    """
+    a = ip_a + port_a.to_bytes(2, "big", signed=False)
+    b = ip_b + port_b.to_bytes(2, "big", signed=False)
+    if a <= b:
+        return ip_a, port_a, ip_b, port_b
+    return ip_b, port_b, ip_a, port_a
+
+
 def _ipv4_tuple(pkt: bytes) -> Optional[Tuple[bytes, bytes, int, int, int]]:
     if len(pkt) < 14 + 20:
         return None
     eth_type = int.from_bytes(pkt[12:14], "big")
     if eth_type != 0x0800:
         return None
+
     ip = pkt[14:]
     ver_ihl = ip[0]
     ver = ver_ihl >> 4
     if ver != 4:
         return None
+
     ihl = (ver_ihl & 0x0F) * 4
     if len(ip) < ihl:
         return None
@@ -62,6 +77,7 @@ def _ipv6_tuple(pkt: bytes) -> Optional[Tuple[bytes, bytes, int, int, int]]:
     eth_type = int.from_bytes(pkt[12:14], "big")
     if eth_type != 0x86DD:
         return None
+
     ip = pkt[14:]
     ver = ip[0] >> 4
     if ver != 6:
@@ -86,10 +102,31 @@ def _ipv6_tuple(pkt: bytes) -> Optional[Tuple[bytes, bytes, int, int, int]]:
 
 
 def tuple_for_packet(pkt: bytes) -> Tuple[bytes, Dict[str, Any]]:
+    """
+    Returns (hash_key_bytes, representation_dict).
+
+    IMPORTANT:
+    - hash_key_bytes is direction-symmetric for TCP/UDP (proto 6/17) by
+      canonicalizing (ip,port) endpoints.
+    - representation_dict preserves the original observed direction for
+      display in worker_map.log (we keep your existing fields/format).
+    """
     t4 = _ipv4_tuple(pkt)
     if t4 is not None:
         src_ip_b, dst_ip_b, sp, dp, pr = t4
-        key = b"4" + src_ip_b + dst_ip_b + sp.to_bytes(2, "big") + dp.to_bytes(2, "big") + bytes([pr])
+
+        # symmetric key
+        ca_ip, ca_p, cb_ip, cb_p = _canon_endpoints(src_ip_b, sp, dst_ip_b, dp)
+        key = (
+            b"4"
+            + ca_ip
+            + cb_ip
+            + ca_p.to_bytes(2, "big")
+            + cb_p.to_bytes(2, "big")
+            + bytes([pr])
+        )
+
+        # preserve original direction for display
         return key, {
             "ip_ver": 4,
             "src_ip": _fmt_ipv4(src_ip_b),
@@ -102,7 +139,19 @@ def tuple_for_packet(pkt: bytes) -> Tuple[bytes, Dict[str, Any]]:
     t6 = _ipv6_tuple(pkt)
     if t6 is not None:
         src_ip_b, dst_ip_b, sp, dp, pr = t6
-        key = b"6" + src_ip_b + dst_ip_b + sp.to_bytes(2, "big") + dp.to_bytes(2, "big") + bytes([pr])
+
+        # symmetric key
+        ca_ip, ca_p, cb_ip, cb_p = _canon_endpoints(src_ip_b, sp, dst_ip_b, dp)
+        key = (
+            b"6"
+            + ca_ip
+            + cb_ip
+            + ca_p.to_bytes(2, "big")
+            + cb_p.to_bytes(2, "big")
+            + bytes([pr])
+        )
+
+        # preserve original direction for display
         return key, {
             "ip_ver": 6,
             "src_ip": _fmt_ipv6(src_ip_b),
@@ -183,6 +232,7 @@ def split_pcap_flowhash(pcap_path: Path, out_dir: Path, workers: int) -> Path:
 
             pkt = data[pkt_off:pkt_end]
             key, rep = tuple_for_packet(pkt)
+
             idx = _hash_key(key) % workers
             worker_id = idx + 1
 

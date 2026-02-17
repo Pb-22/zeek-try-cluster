@@ -5,11 +5,18 @@ let currentLimit = 200;
 let currentTotal = 0;
 let currentQuery = "";
 let aceEditor = null;
+let isRunning = false;
 
 function el(id) { return document.getElementById(id); }
 
 function setStatus(msg) {
   el("status").textContent = msg;
+}
+
+function resetUi() {
+  isRunning = false;
+  const runBtn = el("run");
+  if (runBtn) runBtn.disabled = false;
 }
 
 function clearTabs() {
@@ -55,7 +62,7 @@ function buildTable(fields, rows) {
       const td = document.createElement("td");
       const v = (r[f] !== undefined && r[f] !== null) ? String(r[f]) : "";
       td.textContent = v;
-      td.title = v; // hover full value
+      td.title = v;
       tr.appendChild(td);
     });
     tbody.appendChild(tr);
@@ -71,7 +78,8 @@ function renderPager() {
   const end = Math.min(currentTotal, currentOffset + currentLimit);
 
   const info = document.createElement("div");
-  info.textContent = `Showing ${start}–${end} of ${currentTotal}` + (currentQuery ? ` (filtered)` : "");
+  const jobPart = currentJobId ? `Job ${currentJobId}` : "No job";
+  info.textContent = `${jobPart} — Showing ${start}–${end} of ${currentTotal}` + (currentQuery ? ` (filtered)` : "");
   p.appendChild(info);
 
   const prev = document.createElement("button");
@@ -95,14 +103,14 @@ function renderPager() {
 
 async function fetchLogPage() {
   if (!currentJobId || !currentLog) return;
-  setStatus(`Loading ${currentLog}...`);
 
   const q = currentQuery ? `&q=${encodeURIComponent(currentQuery)}` : "";
   const url = `/api/jobs/${currentJobId}/log/${encodeURIComponent(currentLog)}?offset=${currentOffset}&limit=${currentLimit}${q}`;
-  const res = await fetch(url);
+  setStatus(`Loading ${currentLog}...`);
 
+  const res = await fetch(url);
   if (!res.ok) {
-    setStatus(`Failed to load log: ${currentLog}`);
+    setStatus(`Failed to load ${currentLog} (${res.status})`);
     return;
   }
 
@@ -110,7 +118,7 @@ async function fetchLogPage() {
   currentTotal = data.total || 0;
   buildTable(data.fields || [], data.rows || []);
   renderPager();
-  setStatus(`Loaded ${currentLog}`);
+  setStatus(`Loaded ${currentLog}.`);
 }
 
 async function selectLog(logName) {
@@ -138,7 +146,18 @@ function getScriptText() {
   return el("script").value;
 }
 
+async function safeJson(res) {
+  const txt = await res.text();
+  try {
+    return JSON.parse(txt);
+  } catch {
+    return { raw: txt };
+  }
+}
+
 async function runJob() {
+  if (isRunning) return;
+
   const scriptText = getScriptText();
   const workers = parseInt(el("workers").value || "7", 10);
   const pcapFile = el("pcap").files[0];
@@ -148,51 +167,58 @@ async function runJob() {
     return;
   }
 
+  isRunning = true;
   el("run").disabled = true;
-  setStatus("Running...");
+  setStatus("Running... (uploading + executing)");
+  el("stdout").textContent = "";
+  el("stderr").textContent = "";
 
-  const fd = new FormData();
-  fd.append("script_text", scriptText);
-  fd.append("workers", String(workers));
-  fd.append("pcap", pcapFile);
+  try {
+    const fd = new FormData();
+    fd.append("script_text", scriptText);
+    fd.append("workers", String(workers));
+    fd.append("pcap", pcapFile);
 
-  const res = await fetch("/api/run", { method: "POST", body: fd });
-  const data = await res.json();
+    const res = await fetch("/api/run", { method: "POST", body: fd });
+    const data = await safeJson(res);
 
-  el("stdout").textContent = data.stdout || "";
-  el("stderr").textContent = data.stderr || "";
+    el("stdout").textContent = data.stdout || "";
+    el("stderr").textContent = data.stderr || "";
 
-  if (!data.ok) {
-    setStatus(`Run failed: ${data.error || "unknown error"}`);
-    el("run").disabled = false;
-    return;
+    if (!res.ok || !data.ok) {
+      const code = res.status || "ERR";
+      const msg = data.error || "runner_failed";
+      setStatus(`Run failed (${code}): ${msg}`);
+      return;
+    }
+
+    currentJobId = data.job_id;
+    setTabs(data.logs || []);
+
+    currentQuery = "";
+    el("search").value = "";
+
+    const logs = data.logs || [];
+    setStatus(`Done. Job ${currentJobId}. Logs: ${logs.length}.`);
+
+    const preferred = logs.includes("notice.log") ? "notice.log" : (logs[0] || null);
+    if (preferred) {
+      await selectLog(preferred);
+    }
+  } catch (e) {
+    setStatus(`Run error: ${e}`);
+  } finally {
+    resetUi();
   }
-
-  currentJobId = data.job_id;
-  setTabs(data.logs || []);
-  setStatus(`Done. Job: ${currentJobId}`);
-
-  clearSearch();
-
-  const logs = data.logs || [];
-  const preferred = logs.includes("notice.log") ? "notice.log" : (logs[0] || null);
-  if (preferred) {
-    await selectLog(preferred);
-  }
-
-  el("run").disabled = false;
 }
 
 function initAce() {
   if (typeof ace === "undefined") return;
 
-  // Tell Ace where to load additional modules from (theme/mode/worker files)
   ace.config.set("basePath", "/static");
 
   aceEditor = ace.edit("editor");
   aceEditor.setTheme("ace/theme/twilight");
-
-  // Not a perfect Zeek grammar, but gives you nice token colors for Zeek-like syntax.
   aceEditor.session.setMode("ace/mode/c_cpp");
 
   aceEditor.setOptions({
@@ -205,14 +231,12 @@ function initAce() {
     showGutter: true
   });
 
-  // Keep hidden textarea in sync (helps debugging)
   aceEditor.session.on("change", () => {
     el("script").value = aceEditor.getValue();
   });
 
-  // Starter template (you can overwrite by pasting)
   const starter = `# Paste your Zeek script here.
-# Win condition: your NOTICE shows up in notice.log, and you can click other logs for evidence.
+# If Zeek fails, stderr will display below and status will say Run failed.
 
 event zeek_init()
   {
@@ -223,12 +247,27 @@ event zeek_init()
   el("script").value = aceEditor.getValue();
 }
 
-// Wire buttons + enter key
-el("run").addEventListener("click", runJob);
-el("applySearch").addEventListener("click", applySearch);
-el("clearSearch").addEventListener("click", clearSearch);
-el("search").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") applySearch();
-});
+function wireUi() {
+  // Force-enable Run on every load
+  resetUi();
 
-initAce();
+  el("run").addEventListener("click", runJob);
+  el("applySearch").addEventListener("click", applySearch);
+  el("clearSearch").addEventListener("click", clearSearch);
+  el("search").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") applySearch();
+  });
+}
+
+function boot() {
+  initAce();
+  wireUi();
+}
+
+// Robust boot: if DOM is already loaded, run now; otherwise wait.
+if (document.readyState === "loading") {
+  window.addEventListener("DOMContentLoaded", boot);
+} else {
+  boot();
+}
+
